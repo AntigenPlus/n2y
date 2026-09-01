@@ -1,0 +1,28 @@
+# n2y export configuration for the Antigen Plus teamspace.
+#
+# Requires NOTION_ACCESS_TOKEN in the environment (injected into the dev
+# container from a 1Password virtual env file — see .devcontainer/).
+#
+# The plugin stack reproduces Innolitics' Medtech OS export pipeline:
+# jinjarenderpage + expandbluetoggles render the templated back-matter
+# (Definitions / References / Document Approval), expandlinktopages inlines
+# the shared Back-Matter Template content, removecallouts strips authoring
+# notes, and deepheaders enables the "= Header 4" convention.
+media_root: "export/media"
+media_url: "./media/"
+export_defaults:
+  plugins:
+    - "n2y.plugins.jinjarenderpage"
+    - "n2y.plugins.expandbluetoggles"
+    - "n2y.plugins.removecallouts"
+    - "n2y.plugins.deepheaders"
+    - "n2y.plugins.expandlinktopages"
+    - "n2y.plugins.mermaid"
+    - "n2y.plugins.rawcodeblocks"
+exports:
+  # Smoke test: QMS-018 Notion Documentation Procedure, exported as markdown.
+  # Ground truth for comparison: the signed PDF in Dropbox under
+  # /Business Dropbox for Antigen Plus/FDA/SOPs/.
+  - id: 1d64dcaafc448118a06cf717a69b3a50
+    node_type: page
+    output: export/QMS-018.md

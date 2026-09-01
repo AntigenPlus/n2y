@@ -18,3 +18,6 @@ _debug_pkg
 
 # 1Password virtual env file (mapped at runtime; never commit)
 .devcontainer/*.env
+
+# n2y export output (generated)
+export/
