@@ -66,3 +66,9 @@
 # - github.token    → use GITHUB_TOKEN env var instead
 
 sync.remote: "git+https://github.com/AntigenPlus/n2y"
+export:
+    auto: false
+dolt:
+    auto-push: true
+backup:
+    git-push: false

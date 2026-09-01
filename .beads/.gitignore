@@ -75,3 +75,7 @@ bd.db
 # They would override fork protection in .git/info/exclude.
 # Config files (metadata.json, config.yaml) are tracked by git by default
 # since no pattern above ignores them.
+
+# JSONL files: issues.jsonl is a regenerable snapshot (auto-export off); interactions.jsonl is a local-only audit log
+issues.jsonl
+interactions.jsonl
