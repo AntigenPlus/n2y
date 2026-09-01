@@ -3,6 +3,13 @@
     "build": {
         "dockerfile": "Dockerfile"
     },
+    // NOTION_ACCESS_TOKEN comes from a 1Password Environment mapped to this
+    // virtual .env file; reading it at container creation triggers a 1Password
+    // permission prompt on the host.
+    "runArgs": [
+        "--env-file",
+        "${localWorkspaceFolder}/.devcontainer/devcontainer.env"
+    ],
     "features": {
         "ghcr.io/anthropics/devcontainer-features/claude-code:1": {},
         "ghcr.io/devcontainers/features/github-cli:1": {}

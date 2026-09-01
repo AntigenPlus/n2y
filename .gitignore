@@ -15,3 +15,6 @@ _debug_pkg
 *.db
 .beads-credential-key
 .beads/proxieddb/
+
+# 1Password virtual env file (mapped at runtime; never commit)
+.devcontainer/*.env
