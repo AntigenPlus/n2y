@@ -32,6 +32,17 @@ RUN arch="$(dpkg --print-architecture)" \
     && dpkg -i /tmp/pandoc.deb \
     && rm /tmp/pandoc.deb
 
+# LibreOffice and poppler render the .docx exports to PDF so they can be
+# checked against the signed PDFs in Dropbox without opening Word. Note that
+# LibreOffice is only an approximation of Word: it substitutes metric-compatible
+# fonts and renders bullets and numbering slightly differently, so Word remains
+# the authority on the final appearance.
+RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
+    && apt-get install -y --no-install-recommends \
+        libreoffice-writer \
+        poppler-utils \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
 # mermaid-cli, pinned to match CI
 RUN npm install -g "@mermaid-js/mermaid-cli@${MERMAID_CLI_VERSION}"
 

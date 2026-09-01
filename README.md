@@ -35,6 +35,52 @@ How this fork is set up:
 - Work is tracked with [beads](https://github.com/gastownhall/beads)
   (`bd`, available inside the container) rather than GitHub issues.
 
+### Exporting Word documents
+
+Submission-quality `.docx` output takes two steps, both run from the
+repository root inside the container:
+
+```
+python -m n2y.main n2y.yaml
+python scripts/fill_docx_header.py export/QMS-018-unfilled.docx
+```
+
+The first step writes `export/QMS-018-unfilled.docx`, with pandoc taking its styles,
+heading numbering ("1.", "5.4.1.") and header/footer layout from
+`templates/reference.docx`. The second step renders the jinja placeholders that
+the reference document puts in the Word header and footer -- title, document
+ID, revision and effective date -- and writes the result under its
+document-control filename, for example
+`export/QMS-018_Notion_Documentation_Procedure_Internal_Use_Only_Rev_A.docx`.
+That second file is the deliverable; the `-unfilled` one still shows
+`{{ page['title'] }}` and friends in its header if you open it in Word.
+
+The title, ID and revision come from the YAML front matter of the markdown
+export of the same page (which is why `n2y.yaml` exports QMS-018 both ways);
+the header title is the Notion `Name` with its document-ID prefix removed,
+matching the signed PDFs. The effective date defaults to the day of the export
+-- pass `--date MM/DD/YYYY` to set it explicitly, which is also how a past
+export is reproduced.
+
+`templates/reference.docx` is committed, and `scripts/build_reference_docx.py`
+rebuilds it from an Innolitics-exported Word document (the one used was
+`DES-001-06_Architectural_Design_Procedure_Rev_B_redline.docx` in Dropbox under
+`/Business Dropbox for Antigen Plus/FDA/SOPs/`). It empties the body, accepts
+the redline's tracked changes, replaces every header and footer with the jinja
+template, drops everything but the Antigen Plus logo, and adds the styles
+pandoc needs that the Word document never defined -- without which bulleted
+lists lose their bullets.
+
+To check an export without Word, render it and compare against the signed PDF:
+
+```
+soffice --headless --convert-to pdf --outdir /tmp export/QMS-018_....docx
+pdftotext /tmp/QMS-018_....pdf -
+```
+
+LibreOffice is an approximation -- it substitutes metric-compatible fonts and
+draws bullets differently -- so Word remains the authority on final appearance.
+
 ## Installation
 
 Install first `pandoc` and `mermaid` CLIs. Please note that `n2y` has only been tested with `pandoc 2.19.2` and `mermaid-cli 9.4.0`. This [pandoc](https://github.com/jgm/pandoc/releases/tag/2.19.2) link will take you to their `2.19.2` github releases page. This [mermaid](https://github.com/mermaid-js/mermaid-cli) link will take you to their github page where you will find installation instructions. If using `npm` to install `mermaid`, append `@9.4.0` to the `npm` command to install that specific version.
