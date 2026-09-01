@@ -2,6 +2,20 @@
 
 This file provides instructions and context for AI coding agents working on this project.
 
+## Development Environment
+
+Development happens inside the dev container defined in `.devcontainer/`
+(Python 3.11, pandoc 2.19.2, mermaid-cli 9.4.0, bd, Claude Code), which
+mirrors upstream CI. The pandoc *binary* version is load-bearing: the `pandoc`
+Python wrapper only supports specific pandoc versions, and this codebase
+predates the pandoc 3.x AST changes — do not upgrade pandoc casually.
+
+From a terminal, the container can be driven headlessly with
+`npx @devcontainers/cli up --workspace-folder .` and
+`npx @devcontainers/cli exec --workspace-folder . <cmd>`; in VS Code use
+"Reopen in Container". Run tests with `pytest tests` inside the container
+(no secrets needed; end-to-end tests use a checked-in throwaway Notion token).
+
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:6cd5cc61 -->
 ## Beads Issue Tracker
 

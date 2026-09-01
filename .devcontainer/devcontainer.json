@@ -1,0 +1,24 @@
+{
+    "name": "n2y (Antigen Plus)",
+    "build": {
+        "dockerfile": "Dockerfile"
+    },
+    "features": {
+        "ghcr.io/anthropics/devcontainer-features/claude-code:1": {},
+        "ghcr.io/devcontainers/features/github-cli:1": {}
+    },
+    // Persist Claude Code login and settings across container rebuilds.
+    "mounts": [
+        "source=n2y-claude-config,target=/home/vscode/.claude,type=volume"
+    ],
+    "postCreateCommand": "bash .devcontainer/post-create.sh",
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-python.python",
+                "anthropic.claude-code"
+            ]
+        }
+    },
+    "remoteUser": "vscode"
+}
