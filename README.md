@@ -1,10 +1,39 @@
 # Notion to YAML
 
-[![Test](https://github.com/innolitics/n2y/actions/workflows/tests.yml/badge.svg)](https://github.com/innolitics/n2y/actions/workflows/tests.yml)
+[![Test](https://github.com/AntigenPlus/n2y/actions/workflows/tests.yml/badge.svg)](https://github.com/AntigenPlus/n2y/actions/workflows/tests.yml)
 
 This commandline tool exports data from selected Notion pages and databases into YAML and markdown files. Internally, it converts the Notion pages into a [Pandoc](https://pandoc.org) AST, which enables fine-grained customization of the conversion process.
 
-We use it at [Innolitics](https://innolitics.com) to generate pages for our website, thus allowing us to use Notion as a content management system. We also use it to generate PDFs and Word Documents from Notion pages.
+## About this fork
+
+This is Antigen Plus's fork of [innolitics/n2y](https://github.com/innolitics/n2y).
+We use it to export our quality-system documents (SOPs and DHF product
+documents) from the Antigen Plus Notion teamspace, replacing the hosted
+Medtech OS "Export" button. The default branch is `antigen-plus`; `main`
+tracks upstream and is kept only in case we ever need to merge from or
+contribute back to Innolitics.
+
+How this fork is set up:
+
+- **Development happens in the dev container** (`.devcontainer/`), which
+  provides the pinned toolchain: Python 3.11, pandoc 2.19.2, mermaid-cli
+  9.4.0, and an editable install of this package. The manual installation
+  instructions below are upstream's, kept for reference; you should not need
+  them.
+- **`n2y.yaml`** at the repository root is our export configuration. Output
+  goes to the gitignored `export/` directory.
+- **`NOTION_ACCESS_TOKEN`** is a read-only Notion internal-integration token
+  ("n2y export"), stored in a 1Password Environment whose virtual `.env` file
+  is mapped to `.devcontainer/devcontainer.env` and injected when the
+  container is created.
+- The export pipeline uses only **built-in plugins** (`jinjarenderpage`,
+  `expandbluetoggles`, `expandlinktopages`, `removecallouts`, `deepheaders`,
+  `mermaid`, `rawcodeblocks`). Innolitics' private `plugins.page` and
+  `plugins.idmentions` modules are not needed: the former was upstreamed as
+  `jinjarenderpage`, and the latter's behavior matches the current default
+  page-mention rendering.
+- Work is tracked with [beads](https://github.com/gastownhall/beads)
+  (`bd`, available inside the container) rather than GitHub issues.
 
 ## Installation
 
@@ -117,6 +146,8 @@ export_defaults:
     - "n2y.plugins.removecallouts"
     - "n2y.plugins.deepheaders"
     - "n2y.plugins.expandlinktopages"
+    - "n2y.plugins.jinjarenderpage"
+    - "n2y.plugins.expandbluetoggles"
   content_property: null
   id_property: id
   url_property: url
@@ -125,14 +156,6 @@ exports:
     node_type: "database_as_files"
     filename_template: "{Name}.md"
     id: e24f839e724848d69342d43c07cb5f3e
-    plugins:
-      - "n2y.plugins.mermaid"
-      - "n2y.plugins.rawcodeblocks"
-      - "n2y.plugins.removecallouts"
-      - "n2y.plugins.deepheaders"
-      - "n2y.plugins.expandlinktopages"
-      - "plugins.page"
-      - "plugins.idmentions"
     notion_filter:
       property: "Tags"
       multi_select: { "contains": "DHF" }
@@ -140,14 +163,6 @@ exports:
     id: e24f839e724848d69342d43c07cb5f3e
     filename_template: "{Name}.md"
     node_type: "database_as_files"
-    plugins:
-      - "n2y.plugins.mermaid"
-      - "n2y.plugins.rawcodeblocks"
-      - "n2y.plugins.removecallouts"
-      - "n2y.plugins.deepheaders"
-      - "n2y.plugins.expandlinktopages"
-      - "plugins.page"
-      - "plugins.idmentions"
     notion_filter:
       property: "Tags"
       multi_select: { "contains": "510(k)" }
