@@ -55,6 +55,18 @@ document-control filename, for example
 That second file is the deliverable; the `-unfilled` one still shows
 `{{ page['title'] }}` and friends in its header if you open it in Word.
 
+That second step also fixes the geometry of the Document Approval table. pandoc
+writes the back-matter tables with equal column widths and a table width of
+`auto`, asking the renderer to size each column to its contents. That works for
+the tables whose cells hold something, but the signature cells are empty -- the
+Notion back-matter template emits a bare `<td>` for them -- so the signature
+column comes out too narrow to hold a signature and the rows one line tall. The
+script gives that one table the column widths and row height of the signed
+documents (measured from the QMS-018 Rev A and DES-001-06 Rev B PDFs, which
+agree to within a twip), so the result no longer depends on which renderer
+converts the document. The other back-matter tables are left to size themselves,
+because their proportions legitimately differ from document to document.
+
 The title, ID and revision come from the YAML front matter of the markdown
 export of the same page (which is why `n2y.yaml` exports QMS-018 both ways);
 the header title is the Notion `Name` with its document-ID prefix removed,
@@ -80,6 +92,21 @@ pdftotext /tmp/QMS-018_....pdf -
 
 LibreOffice is an approximation -- it substitutes metric-compatible fonts and
 draws bullets differently -- so Word remains the authority on final appearance.
+Table column widths in particular do not survive the round trip: pandoc writes
+the back-matter tables the way Innolitics' exporter did, with equal column
+widths and a table width of `auto`, which Word reads as autofit-to-contents and
+recomputes from the cell text, while LibreOffice lays the columns out at the
+equal widths it is given. Rendering an Innolitics document through LibreOffice
+reproduces the same equal columns, so a LibreOffice render tells you nothing
+about how the tables will be proportioned in Word or in the signed PDF (n2y-4a0).
+
+`scripts/measure_table_geometry.py` measures those tables in any rendering --
+column widths in points, twips and percentages, plus row heights -- so that a
+render of our export can be compared against a signed PDF numerically:
+
+```
+python scripts/measure_table_geometry.py QMS-018_signed.pdf /tmp/QMS-018_....pdf
+```
 
 ## Installation
 
