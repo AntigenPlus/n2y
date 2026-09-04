@@ -20,8 +20,9 @@ How this fork is set up:
   9.4.0, and an editable install of this package. The manual installation
   instructions below are upstream's, kept for reference; you should not need
   them.
-- **`n2y.yaml`** at the repository root is our export configuration. Output
-  goes to the gitignored `export/` directory.
+- **The export configuration** (`n2y.yaml`) lives in
+  `AntigenPlus/notion-export-workflow`, not here -- see below. Output goes to
+  the gitignored `export/` directory of whichever repository you run it from.
 - **`NOTION_ACCESS_TOKEN`** is a read-only Notion internal-integration token
   ("n2y export"), stored in a 1Password Environment whose virtual `.env` file
   is mapped to `.devcontainer/devcontainer.env` and injected when the
@@ -35,78 +36,28 @@ How this fork is set up:
 - Work is tracked with [beads](https://github.com/gastownhall/beads)
   (`bd`, available inside the container) rather than GitHub issues.
 
-### Exporting Word documents
+### The document-control layer lives elsewhere
 
-Submission-quality `.docx` output takes two steps, both run from the
-repository root inside the container:
+The Word-export pipeline that turns these markdown/docx exports into signed,
+document-controlled deliverables is **not** in this repository. It lives in
+`AntigenPlus/notion-export-workflow`, which consumes this fork as a git
+dependency pinned to a commit SHA:
 
-```
-python -m n2y.main n2y.yaml
-python scripts/fill_docx_header.py export/QMS-018-unfilled.docx
-```
+- `n2y.yaml` -- the export configuration
+- `templates/reference.docx` -- styles, section numbering, header/footer layout
+- `scripts/fill_docx_header.py` -- renders the header/footer jinja placeholders,
+  pins the Document Approval table geometry, and writes the deliverable under
+  its document-control filename
+- `scripts/build_reference_docx.py` -- rebuilds the reference document
+- `scripts/measure_table_geometry.py` -- measures table geometry in a rendering
 
-The first step writes `export/QMS-018-unfilled.docx`, with pandoc taking its styles,
-heading numbering ("1.", "5.4.1.") and header/footer layout from
-`templates/reference.docx`. The second step renders the jinja placeholders that
-the reference document puts in the Word header and footer -- title, document
-ID, revision and effective date -- and writes the result under its
-document-control filename, for example
-`export/QMS-018_Notion_Documentation_Procedure_Internal_Use_Only_Rev_A.docx`.
-That second file is the deliverable; the `-unfilled` one still shows
-`{{ page['title'] }}` and friends in its header if you open it in Word.
+They were moved there so this fork stays a thin delta over `innolitics/n2y`.
+Every Antigen-Plus-specific file left here is a future merge conflict, and
+keeping the delta thin is what makes the SHA pin cheap to bump. They were never
+installed by `pip install git+...` in any case: `setup.py` uses
+`find_packages()` with no `MANIFEST.in`, so only the `n2y` package ships.
 
-That second step also fixes the geometry of the Document Approval table. pandoc
-writes the back-matter tables with equal column widths and a table width of
-`auto`, asking the renderer to size each column to its contents. That works for
-the tables whose cells hold something, but the signature cells are empty -- the
-Notion back-matter template emits a bare `<td>` for them -- so the signature
-column comes out too narrow to hold a signature and the rows one line tall. The
-script gives that one table the column widths and row height of the signed
-documents (measured from the QMS-018 Rev A and DES-001-06 Rev B PDFs, which
-agree to within a twip), so the result no longer depends on which renderer
-converts the document. The other back-matter tables are left to size themselves,
-because their proportions legitimately differ from document to document.
-
-The title, ID and revision come from the YAML front matter of the markdown
-export of the same page (which is why `n2y.yaml` exports QMS-018 both ways);
-the header title is the Notion `Name` with its document-ID prefix removed,
-matching the signed PDFs. The effective date defaults to the day of the export
--- pass `--date MM/DD/YYYY` to set it explicitly, which is also how a past
-export is reproduced.
-
-`templates/reference.docx` is committed, and `scripts/build_reference_docx.py`
-rebuilds it from an Innolitics-exported Word document (the one used was
-`DES-001-06_Architectural_Design_Procedure_Rev_B_redline.docx` in Dropbox under
-`/Business Dropbox for Antigen Plus/FDA/SOPs/`). It empties the body, accepts
-the redline's tracked changes, replaces every header and footer with the jinja
-template, drops everything but the Antigen Plus logo, and adds the styles
-pandoc needs that the Word document never defined -- without which bulleted
-lists lose their bullets.
-
-To check an export without Word, render it and compare against the signed PDF:
-
-```
-soffice --headless --convert-to pdf --outdir /tmp export/QMS-018_....docx
-pdftotext /tmp/QMS-018_....pdf -
-```
-
-LibreOffice is an approximation -- it substitutes metric-compatible fonts and
-draws bullets differently -- so Word remains the authority on final appearance.
-Table column widths in particular do not survive the round trip: pandoc writes
-the back-matter tables the way Innolitics' exporter did, with equal column
-widths and a table width of `auto`, which Word reads as autofit-to-contents and
-recomputes from the cell text, while LibreOffice lays the columns out at the
-equal widths it is given. Rendering an Innolitics document through LibreOffice
-reproduces the same equal columns, so a LibreOffice render tells you nothing
-about how the tables will be proportioned in Word or in the signed PDF (n2y-4a0).
-
-`scripts/measure_table_geometry.py` measures those tables in any rendering --
-column widths in points, twips and percentages, plus row heights -- so that a
-render of our export can be compared against a signed PDF numerically:
-
-```
-python scripts/measure_table_geometry.py QMS-018_signed.pdf /tmp/QMS-018_....pdf
-```
+Change the export pipeline there, not here.
 
 ## Installation
 
