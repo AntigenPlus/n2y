@@ -3,6 +3,7 @@ These tests verify how the n2y block classes convert notion data into Pandoc
 abstract syntax tree (AST) objects, and then into markdown.
 """
 
+import logging
 import re
 from unittest import mock
 
@@ -182,11 +183,55 @@ def process_parent_block(notion_block, child_notion_blocks, plugins=None):
     return pandoc_ast, markdown
 
 
-def test_unknown_block_type():
+def test_unknown_block_type(caplog):
+    # A block type n2y doesn't know about (Notion adds them over time) is
+    # skipped with a warning rather than aborting the export.
     notion_block = mock_block("abcdef", {})
-    with pytest.raises(NotImplementedError) as e:
-        process_block(notion_block)
-    assert "abcdef" in str(e)
+    with caplog.at_level(logging.WARNING):
+        pandoc_ast, markdown = process_block(notion_block)
+    assert pandoc_ast is None
+    assert markdown == ""
+    assert "abcdef" in caplog.text
+
+
+def test_link_to_page_unknown_type(caplog):
+    notion_block = mock_block(
+        "link_to_page",
+        {"type": "comment_id", "comment_id": mock_id()},
+    )
+    with caplog.at_level(logging.WARNING):
+        pandoc_ast, _ = process_block(notion_block)
+    assert pandoc_ast is None
+    assert "comment_id" in caplog.text
+
+
+@mock.patch.object(Client, "download_file")
+def test_pdf_external_is_linked_not_downloaded(mock_download):
+    example_pdf = "https://example.com/paper.pdf"
+    notion_block = mock_block(
+        "pdf",
+        {
+            "type": "external",
+            "caption": [],
+            "external": {"url": example_pdf},
+        },
+    )
+    pandoc_ast, markdown = process_block(notion_block)
+    mock_download.assert_not_called()
+    assert pandoc_ast == Para([Link(("", [], []), [Str(example_pdf)], (example_pdf, ""))])
+
+
+@mock.patch.object(Client, "download_file")
+def test_pdf_internal_is_downloaded_once(mock_download):
+    notion_block = mock_block(
+        "pdf",
+        {"type": "file", "caption": [], "file": mock_file("https://s3/x/paper.pdf")},
+    )
+    mock_download.return_value = "paper.pdf"
+    n2y_block = generate_block(notion_block)
+    n2y_block.to_pandoc()
+    n2y_block.to_pandoc()  # e.g. a re-render for a table of contents
+    assert mock_download.call_count == 1
 
 
 def test_paragraph():
@@ -819,6 +864,16 @@ def test_toc_block_starting_h2():
         1.  [First Foo Ski](#first-foo-ski)
 """
     )
+
+
+def test_toc_block_without_headers():
+    # A page with a table of contents but no headings renders nothing rather
+    # than raising an IndexError.
+    toc_block = mock_block("table_of_contents", {})
+    client = Client("")
+    toc = client.wrap_notion_block(toc_block, None, True)
+    toc.render_toc([Para([Str("no headers here")])])
+    assert toc.to_pandoc() is None
 
 
 @mock.patch("n2y.notion.Client.wrap_notion_user")

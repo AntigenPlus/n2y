@@ -10,6 +10,7 @@ from n2y.config import (
     load_config,
     merge_config,
     valid_notion_id,
+    validate_config,
 )
 from n2y.notion_mocks import mock_id
 
@@ -119,6 +120,30 @@ def test_valid_notion_filter_complex():
         ],
         logger,
     )
+
+
+def test_validate_config_not_a_mapping():
+    # e.g. an empty config file, which yaml loads as None
+    assert not validate_config(None, logger)
+
+
+def test_validate_config_exports_null():
+    assert not validate_config({"exports": None}, logger)
+
+
+def test_validate_config_exports_empty():
+    assert not validate_config({"exports": []}, logger)
+
+
+def test_validate_config_valid():
+    config_item = {"id": mock_id(), "node_type": "page", "output": "page.md"}
+    assert validate_config({"exports": [config_item]}, logger)
+
+
+def test_valid_config_item_invalid_id():
+    config_item = mock_config_item("page")
+    config_item["id"] = "not-a-notion-id"
+    assert not _validate_config_item(config_item, logger)
 
 
 def test_valid_config_item_missing_id():

@@ -1,5 +1,6 @@
 from datetime import datetime
 
+from n2y.properties import MultiSelectOption
 from n2y.utils import fromisoformat, process_notion_date, processed_date_to_plain_text
 
 
@@ -58,12 +59,22 @@ class NumberPropertyValue(PropertyValue):
 class StatusPropertyValue(PropertyValue):
     def __init__(self, client, notion_data, page):
         super().__init__(client, notion_data, page)
-        self.status = notion_data["status"]
+        # The API returns a status option object ({id, name, color}) like a
+        # select; tolerate a bare name too for older mocks.
+        notion_status = notion_data["status"]
+        if isinstance(notion_status, dict):
+            self.notion_option_id = notion_status.get("id")
+            self.name = notion_status.get("name")
+            self.color = notion_status.get("color")
+        else:
+            self.notion_option_id = None
+            self.name = notion_status
+            self.color = None
 
     def to_value(self, _=None, __=None):
         # Note: the Notion UI shouldn't allow you to have two statuses with the
         # same name nor should it allow no status at all
-        return self.status
+        return self.name
 
 
 class SelectPropertyValue(PropertyValue):
@@ -96,14 +107,6 @@ class MultiSelectPropertyValue(PropertyValue):
         # Note: the Notion UI shouldn't allow you to have two options with the
         # same name
         return [o.name for o in self.options]
-
-
-class MultiSelectOption:
-    def __init__(self, client, notion_option):
-        self.client = client
-        self.notion_id = notion_option["id"]
-        self.name = notion_option["name"]
-        self.color = notion_option["color"]
 
 
 class DatePropertyValue(PropertyValue):
@@ -280,9 +283,12 @@ class UniqueIdPropertyValue(PropertyValue):
     def __init__(self, client, notion_data, page):
         super().__init__(client, notion_data, page)
         self.number = notion_data[self.notion_type]["number"]
-        self.prefix = notion_data[self.notion_type]["prefix"]
+        # Notion returns `null` (not "") when the property has no prefix
+        self.prefix = notion_data[self.notion_type]["prefix"] or ""
 
     def to_value(self, _=None, __=None):
+        if self.number is None:
+            return None
         return f"{self.prefix}{self.number}"
 
 
@@ -308,6 +314,16 @@ class PlacePropertyValue(PropertyValue):
 class ButtonPropertyValue(PropertyValue):
     def __init__(self, client, notion_data, page):
         super().__init__(client, notion_data, page)
+
+    def to_value(self, _=None, __=None):
+        return None
+
+
+class UnsupportedPropertyValue(PropertyValue):
+    """
+    Fallback for property types n2y doesn't model (e.g. the `verification`
+    property on wiki databases); exports the property as null.
+    """
 
     def to_value(self, _=None, __=None):
         return None

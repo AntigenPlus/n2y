@@ -158,7 +158,11 @@ def audit_database(database, references, depth):
 
 def audit_page(page, references, depth):
     page.client.logger.info("%sAuditing %s", " " * depth, page.title.to_plain_text())
-    assert page.notion_id not in references  # expect that each page is visited once
+    if page.notion_id in references:
+        # A page can be reachable more than once, e.g. through a synced block
+        # and its original; its links have already been recorded.
+        page.client.logger.debug("%sAlready audited %s", " " * depth, page.notion_id)
+        return
     page.block  # load all of the blocks
     references[page.notion_id] = page.plugin_data.get(plugin_key, [])
     for node in page.children:

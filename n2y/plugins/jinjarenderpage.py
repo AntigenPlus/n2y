@@ -75,15 +75,16 @@ def remove_words(words, text):
 
 def _fuzzy_find_in(term_list, text, key="Name", by_length=True, reverse=True):
     found = []
-    key_filter = lambda d: len(d[key]) if by_length else d[key]
+    # Rows may lack the key or hold None (e.g. an empty property); treat both
+    # as an empty string so that sorting and matching skip them.
+    key_filter = lambda d: len(d.get(key) or "") if by_length else d.get(key) or ""
     sorted_term_list = sorted(term_list, key=key_filter, reverse=reverse)
-    if key in term_list[0]:
-        for term in sorted_term_list:
-            if key in term and term[key] != "":
-                matches = list_matches(term[key], text)
-                if matches != []:
-                    found.append(term)
-                    text = remove_words(matches, text)
+    for term in sorted_term_list:
+        if term.get(key):
+            matches = list_matches(term[key], text)
+            if matches != []:
+                found.append(term)
+                text = remove_words(matches, text)
     return found
 
 
@@ -311,6 +312,16 @@ class JinjaFencedCodeBlock(FencedCodeBlock):
         export_defaults = self.client.export_defaults
         for database_id in self._get_database_ids_from_mentions():
             database = self.client.get_database(database_id)
+            if database is None:
+                # The template's lookup of this database will then fail with
+                # the "must have permission to read the database" message.
+                self.client.logger.warning(
+                    "Unable to access database %s mentioned in the caption of the"
+                    " code block at %s; perhaps it isn't shared with the integration?",
+                    database_id,
+                    self.notion_url,
+                )
+                continue
             # TODO: Rethink about the database data is accessed from within the
             # templates; perhaps it should be something more like Django's ORM
             # where we can filter and sort the databases via the API, instead of
@@ -344,49 +355,73 @@ class JinjaFencedCodeBlock(FencedCodeBlock):
             for k, v in self.jinja_environment.filters.items()
         }
 
+    @staticmethod
+    def _template_line_number(err: Exception) -> str:
+        """
+        The line of the Jinja template that was executing when `err` was
+        raised. Templates compiled from strings show up in the traceback as
+        `File "<template>", line N`; the innermost such frame is the one that
+        matters. Syntax errors carry the line number on the exception instead.
+        """
+        template_lines = re.findall(r'File "<template>", line (\d+)', traceback.format_exc())
+        if template_lines:
+            return template_lines[-1]
+        lineno = getattr(err, "lineno", None)
+        return str(lineno) if lineno is not None else "unknown"
+
     def _specify_err_msg(self, err: Exception):
         block_ref: str = f"See the Notion code block here: {self.notion_url}."
-        line_num: str = traceback.format_exc().split('>", line ')[1][0]
+        line_num: str = self._template_line_number(err)
 
-        if self.exc_info is not None:
-            if type(self.exc_info.err) is KeyError:
-                if type(self.exc_info.obj) is JinjaDatabaseCache:
+        exc_info = self.exc_info
+        if (
+            exc_info is not None
+            and type(exc_info.err) is KeyError
+            and str(exc_info.args[0]) not in str(err)
+        ):
+            # A key lookup that failed earlier but was handled by Jinja itself
+            # (e.g. `page['Optional'] is defined`), not the cause of this error.
+            exc_info = None
+
+        if exc_info is not None:
+            if type(exc_info.err) is KeyError:
+                if type(exc_info.obj) is JinjaDatabaseCache:
                     available_props: str = available_from_list(
-                        list(self.exc_info.obj), "database", "databases"
+                        list(exc_info.obj), "database", "databases"
                     )
                     return (
-                        f' You attempted to access the "{self.exc_info.args[0]}" database'
+                        f' You attempted to access the "{exc_info.args[0]}" database'
                         f" on line {line_num} of said template, but {available_props}."
                         " Note that databases must be mentioned in the Notion code"
                         " block's caption to be available and the plugin must have"
                         " permission to read the database via the NOTION_ACCESS_TOKEN."
                         f" {block_ref}"
                     )
-                elif type(self.exc_info.obj) is JinjaDatabaseItem:
+                elif type(exc_info.obj) is JinjaDatabaseItem:
                     available_props: str = available_from_list(
-                        list(self.exc_info.obj), "property", "properties"
+                        list(exc_info.obj), "property", "properties"
                     )
                     return (
-                        f' You attempted to access the "{self.exc_info.args[0]}" property'
+                        f' You attempted to access the "{exc_info.args[0]}" property'
                         f" of a database item on line {line_num} of said template, but"
                         f" {available_props}. {block_ref}"
                     )
-                elif type(self.exc_info.obj) is PageProperties:
+                elif type(exc_info.obj) is PageProperties:
                     available_props: str = available_from_list(
-                        list(self.exc_info.obj), "property", "properties"
+                        list(exc_info.obj), "property", "properties"
                     )
                     return (
-                        f' You attempted to access the "{self.exc_info.args[0]}" property'
+                        f' You attempted to access the "{exc_info.args[0]}" property'
                         f" of this page on line {line_num} of said template, but"
                         f" {available_props}. {block_ref}"
                     )
-            elif self.exc_info.obj in ["test", "filter"]:
+            elif exc_info.obj in ["test", "filter"]:
                 return (
                     f' Recieved the message "{str(err)}" when evaluating line {line_num}.'
-                    f' The Jinja {self.exc_info.obj} "{self.exc_info.method}" raised'
+                    f' The Jinja {exc_info.obj} "{exc_info.method}" raised'
                     " this error when called with the following argument(s):"
-                    f' {{\n\t"args": {self.exc_info.args},\n\t"kwargs":'
-                    f" {self.exc_info.kwargs}\n}}\n{block_ref}"
+                    f' {{\n\t"args": {exc_info.args},\n\t"kwargs":'
+                    f" {exc_info.kwargs}\n}}\n{block_ref}"
                 )
         elif type(err) is jinja2.exceptions.TemplateSyntaxError:
             return (
@@ -417,6 +452,11 @@ class JinjaFencedCodeBlock(FencedCodeBlock):
 
     def _render_text(self):
         self._prepare_jinja_environment()
+        # Each pass starts clean: an error from the first pass must not mask a
+        # successful second pass, and a stale exception record must not be
+        # attributed to a later, unrelated error.
+        self.error = None
+        self.exc_info = None
         if not getattr(self, "context", None):
             self.context = {
                 "databases": self.databases,
@@ -426,13 +466,18 @@ class JinjaFencedCodeBlock(FencedCodeBlock):
 
             def render_content(notion_id, level_adjustment=0):
                 page = self.client.get_page(notion_id)
+                if page is None:
+                    raise ValueError(
+                        f"Unable to access page {notion_id}; perhaps it isn't"
+                        " shared with the integration?"
+                    )
                 for child in page.block.children:
                     if isinstance(child, HeadingBlock):
-                        child.level = max(1, child.level + level_adjustment)
-                ast = (
-                    page.to_pandoc()
-                    if page.to_pandoc()
-                    else Pandoc(Meta({"title": MetaString(page.block.title)}), [])
+                        # Adjust from the class's level, not the instance's,
+                        # so that repeated renders don't accumulate the shift.
+                        child.level = max(1, type(child).level + level_adjustment)
+                ast = page.to_pandoc() or Pandoc(
+                    Meta({"title": MetaString(page.block.title)}), []
                 )
                 content = pandoc.write(
                     ast,
@@ -486,8 +531,12 @@ class JinjaFencedCodeBlock(FencedCodeBlock):
             try:
                 return func(*args, **kwargs)
             except Exception as err:
-                if self.exc_info is None:
-                    if type(args[0]) is jinja2.Environment:
+                # Keep the innermost record when filters nest, but replace a
+                # key-lookup record: that was either the cause of this error
+                # (in which case the filter's arguments are more useful) or
+                # a lookup Jinja already handled.
+                if self.exc_info is None or type(self.exc_info.err) is KeyError:
+                    if args and type(args[0]) is jinja2.Environment:
                         args = list(args[1:])
                     self.exc_info = JinjaExceptionInfo(
                         jinja_type, err, jinja_ref, args, kwargs

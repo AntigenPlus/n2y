@@ -5,6 +5,7 @@ import pytest
 from n2y import notion
 from n2y.notion_mocks import (
     mock_formula_property_value,
+    mock_id,
     mock_person_user,
     mock_property_value,
     mock_relation_value,
@@ -225,6 +226,20 @@ def test_rollup_date_array():
 def test_unique_id():
     notion_data = mock_property_value("unique_id", {"number": "1234", "prefix": ""})
     assert process_property_value(notion_data) == "1234"
+
+
+def test_unique_id_without_prefix():
+    # Notion returns a null prefix when none is configured
+    notion_data = mock_property_value("unique_id", {"number": 1234, "prefix": None})
+    assert process_property_value(notion_data) == "1234"
+
+
+def test_status_option_object():
+    # The API returns a status option object, like a select
+    notion_data = mock_property_value(
+        "status", {"id": mock_id(), "name": "In progress", "color": "blue"}
+    )
+    assert process_property_value(notion_data) == "In progress"
 
 
 def test_unique_id_with_prefix():

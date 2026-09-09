@@ -7,9 +7,15 @@ import requests
 from pandoc.types import MetaBool, MetaList, MetaMap, MetaString
 from pytest import raises
 
-from n2y.errors import APIErrorCode, APIResponseError, ConnectionThrottled
+from n2y.errors import (
+    APIErrorCode,
+    APIResponseError,
+    ConnectionThrottled,
+    HTTPResponseError,
+)
 from n2y.notion import Client
 from n2y.utils import (
+    canonical_id,
     fromisoformat,
     header_id_from_text,
     id_from_share_link,
@@ -167,13 +173,94 @@ def test_retry_api_call_max_errors():
 
 def test_retry_api_call_retry_false():
     client = Client(foo_token, retry=False)
+    call_count = 0
 
     @retry_api_call
     def tester(_):
+        nonlocal call_count
+        call_count += 1
         raise ConnectionThrottled(MockResponse(0.001, rate_limited_status_code))
 
     with raises(ConnectionThrottled):
         tester(client)
+    assert call_count == 1
+
+
+def test_retry_api_call_chunked_encoding_error():
+    client = Client(foo_token)
+    call_count = 0
+
+    @retry_api_call
+    def tester(_):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise requests.exceptions.ChunkedEncodingError("Connection broken")
+        return True
+
+    with patch("n2y.utils.sleep"):
+        assert tester(client)
+    assert call_count == 2
+
+
+def test_retry_api_call_non_idempotent_connection_error():
+    # The server may have processed a POST whose reply was lost; don't replay it
+    client = Client(foo_token)
+    call_count = 0
+
+    @retry_api_call(idempotent=False)
+    def tester(_):
+        nonlocal call_count
+        call_count += 1
+        raise requests.exceptions.ConnectionError("Connection reset by peer")
+
+    with patch("n2y.utils.sleep"), raises(requests.exceptions.ConnectionError):
+        tester(client)
+    assert call_count == 1
+
+
+def test_retry_api_call_idempotent_override():
+    # A call site may declare a particular POST (e.g. a query) safe to replay
+    client = Client(foo_token)
+    call_count = 0
+
+    @retry_api_call(idempotent=False)
+    def tester(_):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise requests.exceptions.ConnectionError("Connection reset by peer")
+        return True
+
+    with patch("n2y.utils.sleep"):
+        assert tester(client, idempotent=True)
+    assert call_count == 2
+
+
+def test_retry_api_call_non_notion_server_error():
+    client = Client(foo_token)
+    call_count = 0
+
+    @retry_api_call
+    def tester(_):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise HTTPResponseError(MockResponse(0, 503))
+        return True
+
+    with patch("n2y.utils.sleep"):
+        assert tester(client)
+    assert call_count == 2
+
+
+def test_canonical_id():
+    hyphenated = "42361d23-3462-4e94-9d9b-7e94d30c988b"
+    assert canonical_id("42361d2334624e949d9b7e94d30c988b") == hyphenated
+    assert canonical_id(hyphenated) == hyphenated
+    assert canonical_id("42361D2334624E949D9B7E94D30C988B") == hyphenated
+    assert canonical_id("unusedid") == "unusedid"
+    assert canonical_id(None) is None
 
 
 def test_yaml_to_meta_value_scalar():

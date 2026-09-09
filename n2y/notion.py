@@ -7,7 +7,7 @@ from urllib.parse import urljoin, urlparse
 
 import requests
 
-from n2y.blocks import DEFAULT_BLOCKS
+from n2y.blocks import DEFAULT_BLOCKS, WarningBlock
 from n2y.comment import Comment
 from n2y.config import merge_default_config
 from n2y.database import Database
@@ -22,14 +22,14 @@ from n2y.errors import (
     UseNextClass,
 )
 from n2y.file import File
-from n2y.mentions import DEFAULT_MENTIONS
+from n2y.mentions import DEFAULT_MENTIONS, UnsupportedMention
 from n2y.notion_mocks import mock_rich_text_array
 from n2y.page import Page
-from n2y.properties import DEFAULT_PROPERTIES
-from n2y.property_values import DEFAULT_PROPERTY_VALUES
+from n2y.properties import DEFAULT_PROPERTIES, Property
+from n2y.property_values import DEFAULT_PROPERTY_VALUES, UnsupportedPropertyValue
 from n2y.rich_text import DEFAULT_RICH_TEXTS, RichTextArray
 from n2y.user import User
-from n2y.utils import retry_api_call, sanitize_filename, strip_hyphens
+from n2y.utils import canonical_id, retry_api_call, sanitize_filename, strip_hyphens
 
 # TODO: Rename this file `client.py`
 log = logging.getLogger(__name__)
@@ -81,6 +81,17 @@ DEFAULT_NOTION_CLASSES = {
     "rich_texts": DEFAULT_RICH_TEXTS,
     "mentions": DEFAULT_MENTIONS,
     "comment": Comment,
+}
+
+# Classes used when Notion returns an object type that has no entry in the
+# tables above (Notion adds block, mention, and property types over time).
+# Each degrades gracefully - a logged warning and no output - so that a
+# single new type doesn't abort an entire export.
+FALLBACK_NOTION_CLASSES = {
+    "blocks": WarningBlock,
+    "mentions": UnsupportedMention,
+    "properties": Property,
+    "property_values": UnsupportedPropertyValue,
 }
 
 
@@ -221,9 +232,12 @@ class Client:
     ):
         if object_type in default_object_types:
             class_being_replaced = default_object_types[object_type]
-            # assumes all of the default classes have a single parent class
-            base_class = class_being_replaced.__bases__[0]
-            if issubclass(plugin_class, base_class):
+            # A plugin class must derive from the root class for this kind of
+            # object (e.g. `Block`), not necessarily from the same intermediate
+            # class as the default it replaces: e.g. a callout is rendered like
+            # a paragraph by default but a plugin may replace it with a NoopBlock.
+            base_class = class_being_replaced.__mro__[-2]
+            if isinstance(plugin_class, type) and issubclass(plugin_class, base_class):
                 self.notion_classes[notion_object][object_type].append(plugin_class)
             else:
                 raise PluginError(
@@ -239,6 +253,13 @@ class Client:
         try:
             return self.notion_classes[notion_object][object_type]
         except KeyError:
+            if notion_object in FALLBACK_NOTION_CLASSES:
+                self.logger.warning(
+                    'Unknown "%s" type "%s"; treating it as unsupported',
+                    notion_object,
+                    object_type,
+                )
+                return [FALLBACK_NOTION_CLASSES[notion_object]]
             raise NotImplementedError(
                 f'Unknown "{notion_object}" class of type "{object_type}"'
             )
@@ -269,23 +290,23 @@ class Client:
         replace our existing page instance, along with it's content or other
         state that has been added to it.
         """
-        page_in_cache = notion_data["id"] in self.pages_cache
+        page_id = canonical_id(notion_data["id"])
+        page_in_cache = page_id in self.pages_cache
         if page_in_cache and self.class_is_in_use(
             # Need to check that the page in the client cache was instantiated using
             # the currently favored page class. Otherwise, plugins set for one export
             # will be used in another or a plugin will be set but not used.
             # As we currently use the `jinjarenderpage` plugin for all pages,
             # this check is most likely unnecessary at this point.
-            self.pages_cache[notion_data["id"]],
+            self.pages_cache[page_id],
             "page",
         ):
-            return self.pages_cache[notion_data["id"]]
+            return self.pages_cache[page_id]
         else:
             page = self.instantiate_class("page", None, self, notion_data)
-            not page_in_cache or self.logger.warning(
-                f"page in cache overwritten at key \"{notion_data['id']}\""
-            )
-            self.pages_cache[page.notion_id] = page
+            if page_in_cache:
+                self.logger.warning('page in cache overwritten at key "%s"', page_id)
+            self.pages_cache[page_id] = page
             return page
 
     def _wrap_notion_database(self, notion_data):
@@ -316,6 +337,15 @@ class Client:
                     notion_data = self.get_notion_user(user_id)
                 except ObjectNotFound:
                     pass
+                except APIResponseError as err:
+                    # E.g. `restricted_resource` when the integration lacks the
+                    # "read user information" capability. The user's name is
+                    # cosmetic, so degrade to the bare id instead of aborting.
+                    self.logger.warning(
+                        "Unable to retrieve user %s (%s); continuing without it",
+                        user_id,
+                        err,
+                    )
             user = self.instantiate_class("user", None, self, notion_data)
             self.users_cache[user_id] = user
         return user
@@ -325,6 +355,23 @@ class Client:
 
     def wrap_notion_emoji(self, notion_data):
         return self.instantiate_class("emoji", None, self, notion_data)
+
+    def wrap_notion_icon(self, notion_data):
+        """
+        Page and database icons are either an emoji (built-in or custom) or a
+        file (uploaded or external). Unknown icon types are skipped with a
+        warning rather than aborting the export.
+        """
+        if notion_data is None:
+            return None
+        icon_type = notion_data["type"]
+        if icon_type in ("emoji", "custom_emoji"):
+            return self.wrap_notion_emoji(notion_data)
+        elif icon_type in ("file", "external"):
+            return self.wrap_notion_file(notion_data)
+        else:
+            self.logger.warning('Skipping unsupported icon type "%s"', icon_type)
+            return None
 
     def wrap_notion_rich_text_array(self, notion_data, block=None):
         return self.instantiate_class("rich_text_array", None, self, notion_data, block)
@@ -375,6 +422,7 @@ class Client:
         Retrieve the database (but not it's pages) if its not in the cache. Even
         if it is in the cache.
         """
+        database_id = canonical_id(database_id)
         if database_id in self.databases_cache and self.class_is_in_use(
             self.databases_cache[database_id], "database"
         ):
@@ -402,16 +450,20 @@ class Client:
             request_data["filter"] = filter
         if sorts:
             request_data["sorts"] = sorts
-        return self._paginated_request(self._post_url, url, request_data)
+        # A query is a read, so it is safe to replay after a network failure
+        # even though it is sent as a POST.
+        return self._paginated_request(self._query_url, url, request_data)
 
     def get_page(self, page_id):
         """
         Retrieve the page if its not in the cache.
         """
+        page_id = canonical_id(page_id)
         if page_id in self.pages_cache:
             page = self.pages_cache[page_id]
             if not self.class_is_in_use(page, "page"):
                 page = self.instantiate_class("page", None, self, page.notion_data)
+                self.pages_cache[page_id] = page
         else:
             try:
                 notion_page = self.get_notion_page(page_id)
@@ -478,12 +530,16 @@ class Client:
         )
         return self._parse_response(response, stream)
 
-    @retry_api_call
+    @retry_api_call(idempotent=False)
     def _post_url(self, url, data=None):
         if data is None:
             data = {}
         response = requests.post(url, headers=self.headers, json=data)
         return self._parse_response(response)
+
+    def _query_url(self, url, data=None):
+        """POST used as a read (database query, search); safe to replay."""
+        return self._post_url(url, data, idempotent=True)
 
     @retry_api_call
     def _delete_url(self, url):
@@ -492,7 +548,7 @@ class Client:
         )
         return self._parse_response(response)
 
-    @retry_api_call
+    @retry_api_call(idempotent=False)
     def _patch_url(self, url, data=None):
         if data is None:
             data = {}
@@ -767,5 +823,5 @@ class Client:
             "page_size": page_size,
             "filter": {"property": "object", "value": "page"},
         }
-        results = self._paginated_request(self._post_url, url, params)
+        results = self._paginated_request(self._query_url, url, params)
         return [self._wrap_notion_page(page) for page in results]

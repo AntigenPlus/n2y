@@ -13,7 +13,7 @@ class Database:
         self.last_edited_time = fromisoformat(notion_data["last_edited_time"])
         self.last_edited_by = client.wrap_notion_user(notion_data["last_edited_by"])
         self.title = client.wrap_notion_rich_text_array(notion_data["title"])
-        self.icon = self._init_icon(notion_data["icon"])
+        self.icon = client.wrap_notion_icon(notion_data["icon"])
         self.cover = notion_data["cover"] and client.wrap_notion_file(
             notion_data["cover"]
         )
@@ -24,7 +24,6 @@ class Database:
         }
         self.notion_parent = notion_data["parent"]
         self.notion_url = notion_data["url"]
-        self.archived = notion_data["archived"]
 
         self._children = None
         self._filtered_children = {}
@@ -62,17 +61,6 @@ class Database:
         else:
             return (item,)
 
-    def _init_icon(self, icon_notion_data):
-        """
-        The icon property is unique in that it can be either an emoji or a file.
-        """
-        if icon_notion_data is None:
-            return None
-        elif icon_notion_data["type"] == "emoji":
-            return self.client.wrap_notion_emoji(icon_notion_data)
-        else:
-            return self.client.wrap_notion_file(icon_notion_data)
-
     @property
     def parent(self):
         """
@@ -91,6 +79,3 @@ class Database:
 
         if type == "block_id":
             return self.client.get_block(self.notion_parent["block_id"], page=None)
-
-    def to_pandoc(self):
-        return self.block.to_pandoc()

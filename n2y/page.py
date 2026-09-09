@@ -20,7 +20,7 @@ class Page:
         self.last_edited_time = fromisoformat(notion_data["last_edited_time"])
         self.created_by = client.wrap_notion_user(notion_data["created_by"])
         self.last_edited_by = client.wrap_notion_user(notion_data["last_edited_by"])
-        self.icon = self._init_icon(notion_data["icon"])
+        self.icon = client.wrap_notion_icon(notion_data["icon"])
         self.cover = notion_data["cover"] and client.wrap_notion_file(
             notion_data["cover"]
         )
@@ -28,17 +28,6 @@ class Page:
             k: client.wrap_notion_property_value(npv, self)
             for k, npv in notion_data["properties"].items()
         }
-
-    def _init_icon(self, icon_notion_data):
-        """
-        The icon property is unique in that it can be either an emoji or a file.
-        """
-        if icon_notion_data is None:
-            return None
-        elif icon_notion_data["type"] == "emoji":
-            return self.client.wrap_notion_emoji(icon_notion_data)
-        else:
-            return self.client.wrap_notion_file(icon_notion_data)
 
     @property
     def title(self):
@@ -84,14 +73,24 @@ class Page:
 
     @property
     def parent(self):
+        """
+        The parent of a page can be another page, a database, a block (when
+        the page was created inside e.g. a toggle or column), or the workspace.
+        """
         parent_type = self.notion_parent["type"]
         if parent_type == "workspace":
             return None
         elif parent_type == "page_id":
             return self.client.get_page(self.notion_parent["page_id"])
-        else:
-            assert parent_type == "database_id"
+        elif parent_type == "database_id":
             return self.client.get_database(self.notion_parent["database_id"])
+        elif parent_type == "block_id":
+            return self.client.get_block(self.notion_parent["block_id"], page=None)
+        else:
+            self.client.logger.warning(
+                'Unknown parent type "%s" for page %s', parent_type, self.notion_url
+            )
+            return None
 
     def generate_toc(self, ast):
         """

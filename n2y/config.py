@@ -97,10 +97,13 @@ def merge_default_config(defaults):
 
 
 def validate_config(config, logger):
+    if not isinstance(config, dict):
+        logger.error("Config must be a YAML mapping")
+        return False
     if "exports" not in config:
         logger.error("Config missing the 'exports' key")
         return False
-    if not isinstance(config["exports"], list) and len(config["exports"]) > 0:
+    if not isinstance(config["exports"], list) or len(config["exports"]) == 0:
         logger.error("Config 'exports' key must be a non-empty list")
         return False
     for export in config["exports"]:
@@ -111,6 +114,8 @@ def validate_config(config, logger):
 
 
 def valid_notion_id(notion_id):
+    if not isinstance(notion_id, str):
+        return False
     canonical_id = strip_hyphens(notion_id)
     return len(canonical_id) == 32 and canonical_id.isalnum()
 
@@ -121,6 +126,7 @@ def _validate_config_item(config_item, logger):
         return False
     if not valid_notion_id(config_item["id"]):
         logger.error("Invalid id in export config item: %s", config_item["id"])
+        return False
     if "node_type" not in config_item:
         logger.error("Export config item missing the 'node_type' key")
         return False

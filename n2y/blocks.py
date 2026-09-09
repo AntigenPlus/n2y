@@ -4,7 +4,6 @@ from urllib.parse import urljoin
 
 from pandoc.types import (
     AlignDefault,
-    BlockQuote,
     BulletList,
     Caption,
     Cell,
@@ -35,7 +34,12 @@ from pandoc.types import (
 )
 
 from n2y.notion_mocks import mock_block, mock_rich_text_array
-from n2y.utils import header_id_from_text, pandoc_write_or_log_errors, yaml_map_to_meta
+from n2y.utils import (
+    header_id_from_text,
+    pandoc_write_or_log_errors,
+    strip_hyphens,
+    yaml_map_to_meta,
+)
 
 
 class Block:
@@ -114,7 +118,7 @@ class Block:
     @property
     def notion_url(self):
         # the notion URL's don't work if the dashes from the block ID are present
-        fragment = "#" + self.notion_id.replace("-", "")
+        fragment = "#" + strip_hyphens(self.notion_id)
         if self.page is None:
             return fragment
         else:
@@ -222,7 +226,12 @@ class TableOfContentsBlock(Block):
         super().__init__(client, notion_data, page, get_children)
 
     def get_children(self):
-        if self.subheaders is not None:
+        if self.subheaders is None:
+            self.children = None
+        elif not self.subheaders:
+            # A page with a table of contents but no headings
+            self.children = []
+        else:
             children: list[TableOfContentsItemBlock] = []
             subsections: list[list[Header]] = []
             # Sometimes, the first header is not an H1, so we need to find the first
@@ -239,8 +248,8 @@ class TableOfContentsBlock(Block):
                         f'Skipping out-of-order header "{header[1][0]}" in table of'
                         " contents for page named"
                         f" {self.page.title.to_plain_text()} ({self.page.notion_url})."
-                        " The base header is an H{base} so all following headers"
-                        " should be H{base} or greater."
+                        f" The base header is an H{base} so all following headers"
+                        f" should be H{base} or greater."
                     )
             for subsection in subsections:
                 notion_data = self.generate_item_block(subsection)
@@ -250,8 +259,6 @@ class TableOfContentsBlock(Block):
             if children:
                 self.has_children = True
             self.children = children
-        else:
-            self.children = None
 
     def get_subheaders(self, ast_list):
         self.subheaders: list[Header] | None = []
@@ -568,54 +575,66 @@ class QuoteBlock(ParagraphBlock):
     3. Using Div with custom-style provides better DOCX compatibility
     """
 
-    def __init__(self, client, notion_data, page, get_children=True):
-        super().__init__(client, notion_data, page, get_children)
-        self.rich_text = client.wrap_notion_rich_text_array(
-            self.notion_type_data["rich_text"], self
-        )
-        self.notion_color = self._extract_notion_color()
-
-    def _extract_notion_color(self):
-        """Extract color information from Notion block data"""
-        try:
-            if hasattr(self.notion_data, "quote") and self.notion_data.quote:
-                return getattr(self.notion_data.quote, "color", "default")
-            return "default"
-        except Exception:
-            return "default"
-
     def to_pandoc(self):
-        # Get content from parent class (Para or list of blocks)
+        # ParagraphBlock returns a single Para, or a list when there are children
         quote_content = super().to_pandoc()
-
-        # Since Pandoc doesn't support attributes on BlockQuote,
-        # use a Div with custom-style for DOCX compatibility
-        if isinstance(quote_content, BlockQuote):
-            # Extract the content from the original BlockQuote
-            # (shouldn't happen with ParagraphBlock)
-            content = quote_content[0]
-        elif isinstance(quote_content, list):
-            # Quote has children - use the list directly
+        if isinstance(quote_content, list):
             content = quote_content
         else:
-            # Single Para or other element - wrap in list
             content = [quote_content]
 
         # Create a Div with custom-style for DOCX compatibility
         # Include markdown="1" so kramdown processes markdown inside the div
         return Div(
             ("", [], [("custom-style", "Block Quote"), ("markdown", "1")]),
-            content
+            content,
         )
 
 
-class FileBlock(Block):
+class ContentBlock(Block):
+    """
+    Generic base class for blocks that contain file-based content that should be
+    downloaded and then linked to.
+    """
+
     def __init__(self, client, notion_data, page, get_children=True):
         super().__init__(client, notion_data, page, get_children)
-        self.file = client.wrap_notion_file(notion_data["file"])
+        self.file = client.wrap_notion_file(self.notion_type_data)
         self.caption = client.wrap_notion_rich_text_array(
             self.notion_type_data["caption"], self
         )
+        self._url = None
+
+    @property
+    def url(self):
+        """
+        Externally hosted files are linked to as-is; Notion-hosted files are
+        downloaded into the media root and linked to there. The result is
+        memoized because a page may be rendered more than once (e.g. when it
+        has a table of contents, or a Jinja template requests a second pass).
+        """
+        if self._url is None:
+            if self.file.type == "external":
+                self._url = self.file.url
+            else:
+                self._url = self.client.download_file(
+                    self.file.url, self.page, self.notion_id
+                )
+        return self._url
+
+    def to_pandoc(self):
+        url = self.url
+        content_ast = [Link(("", [], []), [Str(url)], (url, ""))]
+        if self.caption:
+            caption_ast = self.caption.to_pandoc()
+            return render_with_caption(content_ast, caption_ast)
+        else:
+            return Para(content_ast)
+
+
+class FileBlock(ContentBlock):
+    def __init__(self, client, notion_data, page, get_children=True):
+        super().__init__(client, notion_data, page, get_children)
         potential_name = match(
             (
                 r".+(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/)+"
@@ -623,15 +642,10 @@ class FileBlock(Block):
             ),
             self.file.url,
         )
-        name = potential_name.groups("name") if potential_name else None
-        self.name = name[0] if name else None
+        self.name = potential_name.group("name") if potential_name else None
 
     def to_pandoc(self):
-        url = None
-        if self.file.type == "external":
-            url = self.file.url
-        elif self.file.type == "file":
-            url = self.client.download_file(self.file.url, self.page, self.notion_id)
+        url = self.url
         content_ast = [Link(("", [], []), [Str(self.name or url)], (url, ""))]
         if self.caption:
             caption_ast = self.caption.to_pandoc()
@@ -639,20 +653,9 @@ class FileBlock(Block):
         return Para(content_ast)
 
 
-class ImageBlock(Block):
-    def __init__(self, client, notion_data, page, get_children=True):
-        super().__init__(client, notion_data, page, get_children)
-        self.file = client.wrap_notion_file(notion_data["image"])
-        self.caption = client.wrap_notion_rich_text_array(
-            self.notion_type_data["caption"], self
-        )
-
+class ImageBlock(ContentBlock):
     def to_pandoc(self):
-        url = None
-        if self.file.type == "external":
-            url = self.file.url
-        elif self.file.type == "file":
-            url = self.client.download_file(self.file.url, self.page, self.notion_id)
+        url = self.url
         caption = []
         fig_flag = ""
         if self.caption:
@@ -752,23 +755,11 @@ class ToggleBlock(Block):
         return BulletList([content])
 
 
-class CalloutBlock(Block):
-    def __init__(self, client, notion_data, page, get_children=True):
-        super().__init__(client, notion_data, page, get_children)
-        self.rich_text = client.wrap_notion_rich_text_array(
-            self.notion_type_data["rich_text"], self
-        )
-        # the color and icon are not currently used
-
-    def to_pandoc(self):
-        content = self.rich_text.to_pandoc()
-        if self.has_children:
-            children = self.children_to_pandoc()
-            result = [Para(content)]
-            result.extend(children)
-        else:
-            result = Para(content)
-        return result
+class CalloutBlock(ParagraphBlock):
+    """
+    Rendered like a paragraph (followed by any child blocks); the callout's
+    color and icon are not currently used.
+    """
 
 
 class NoopBlock(Block):
@@ -808,33 +799,6 @@ class EmbedBlock(WarningBlock):
     pass
 
 
-class ContentBlock(Block):
-    """
-    Generic base class for blocks that contain file-based content that should be
-    downloaded and then linked to.
-    """
-
-    def __init__(self, client, notion_data, page, get_children=True):
-        super().__init__(client, notion_data, page, get_children)
-        self.file = client.wrap_notion_file(self.notion_type_data)
-        self.caption = client.wrap_notion_rich_text_array(
-            self.notion_type_data["caption"], self
-        )
-
-    def to_pandoc(self):
-        url = None
-        if self.file.type == "external":
-            url = self.file.url
-        elif self.file.type == "file":
-            url = self.client.download_file(self.file.url, self.page, self.notion_id)
-        content_ast = [Link(("", [], []), [Str(url)], (url, ""))]
-        if self.caption:
-            caption_ast = self.caption.to_pandoc()
-            return render_with_caption(content_ast, caption_ast)
-        else:
-            return Para(content_ast)
-
-
 class AudioBlock(ContentBlock):
     pass
 
@@ -843,21 +807,8 @@ class VideoBlock(ContentBlock):
     pass
 
 
-class PdfBlock(Block):
-    def __init__(self, client, notion_data, page, get_children=True):
-        super().__init__(client, notion_data, page, get_children)
-        self.pdf = client.wrap_notion_file(notion_data["pdf"])
-        self.caption = client.wrap_notion_rich_text_array(
-            self.notion_type_data["caption"], self
-        )
-
-    def to_pandoc(self):
-        url = self.client.download_file(self.pdf.url, self.page, self.notion_id)
-        content_ast = [Link(("", [], []), [Str(url)], (url, ""))]
-        if self.caption:
-            caption_ast = self.caption.to_pandoc()
-            return render_with_caption(content_ast, caption_ast)
-        return Para(content_ast)
+class PdfBlock(ContentBlock):
+    pass
 
 
 class ChildrenPassThroughBlock(Block):
@@ -932,7 +883,11 @@ class LinkToPageBlock(Block):
         elif self.link_type == "database_id":
             node = self.client.get_database(self.linked_node_id)
         else:
-            raise NotImplementedError(f"Unknown link type: {self.link_type}")
+            # e.g. "comment_id"
+            self.client.logger.warning(
+                'Skipping link to unsupported "%s" (%s)', self.link_type, self.notion_url
+            )
+            return None
 
         if node is None:
             msg = "Permission denied when attempting to access linked node (%r)"

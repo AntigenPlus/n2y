@@ -16,6 +16,7 @@ from n2y.errors import (
     APIErrorCode,
     APIResponseError,
     ConnectionThrottled,
+    HTTPResponseError,
     PandocASTParseError,
 )
 
@@ -280,6 +281,23 @@ def strip_hyphens(string):
     return string.replace("-", "")
 
 
+def canonical_id(notion_id):
+    """
+    Return a Notion id in the hyphenated UUID form the API uses, so that ids
+    written without hyphens (as in config files and share links) compare and
+    cache equal to the ids Notion returns. Anything that isn't a 32-character
+    hex id is returned unchanged.
+    """
+    if not isinstance(notion_id, str):
+        return notion_id
+    hex_id = strip_hyphens(notion_id).lower()
+    if len(hex_id) != 32 or not all(c in "0123456789abcdef" for c in hex_id):
+        return notion_id
+    return "-".join(
+        [hex_id[:8], hex_id[8:12], hex_id[12:16], hex_id[16:20], hex_id[20:]]
+    )
+
+
 def stringify_list(array, wrap_in_quotes=False):
     if wrap_in_quotes:
         array = [f'"{item}"' for item in array]
@@ -313,61 +331,77 @@ def load_yaml(data):
         raise ValueError('"{}" contains invalid YAML: {}'.format(data, e))
 
 
-def retry_api_call(api_call):
+# Failures where the request may never have reached the server, or the reply
+# was lost on the way back. `ChunkedEncodingError` is what `requests` raises
+# when a streamed body (e.g. a file download) is cut off mid-transfer; it is
+# not a `ConnectionError` subclass.
+TRANSIENT_NETWORK_ERRORS = (
+    requests.exceptions.ConnectionError,
+    requests.exceptions.ChunkedEncodingError,
+)
+
+# HTTP statuses worth retrying when the response isn't a Notion API error
+# (e.g. the file host used by `download_file` returning a transient 5xx).
+RETRYABLE_HTTP_STATUSES = {429, 500, 502, 503, 504}
+
+
+def _response_is_retryable(err):
+    if isinstance(err, APIResponseError):
+        return err.code in APIErrorCode.RetryableCodes
+    return err.status in RETRYABLE_HTTP_STATUSES
+
+
+def retry_api_call(api_call=None, *, idempotent=True):
     """
-    Retry an API call if it fails due to a rate limit or server error. Can only be used to
-    decorate methods of the `Client` class.
+    Retry an API call if it fails due to a rate limit, a server error, or a
+    transient network failure. Can only be used to decorate methods of the
+    `Client` class.
+
+    Network failures are ambiguous: the server may or may not have processed
+    the request. They are therefore only retried when the call is idempotent.
+    Decorate non-idempotent calls (POST/PATCH that create or append) with
+    `@retry_api_call(idempotent=False)`; a call site that knows a particular
+    request is safe to replay (e.g. a database query sent via POST) can pass
+    `idempotent=True` when invoking the decorated method.
     """
+    if api_call is None:
+        return functools.partial(retry_api_call, idempotent=idempotent)
+
     max_api_retries = 4
 
     @functools.wraps(api_call)
-    def wrapper(*args, retry_count=0, **kwargs):
+    def wrapper(*args, retry_count=0, idempotent=idempotent, **kwargs):
         client = args[0]
         assert "retry_count" not in kwargs, "retry_count is a reserved keyword"
         try:
             return api_call(*args, **kwargs)
-        except requests.exceptions.ConnectionError as err:
-            # Transient network failures (e.g. connection reset by peer during
-            # long pulls with many file downloads) are worth retrying too.
-            if retry_count >= max_api_retries:
-                raise err
-            retry_count += 1
-            retry_after = 2 * retry_count
-            client.logger.info(
-                "This API call failed with a connection error and "
-                "will be retried in %f seconds. Attempt %d of %d.",
-                retry_after,
-                retry_count,
-                max_api_retries,
-            )
-            sleep(retry_after)
-            return wrapper(*args, retry_count=retry_count, **kwargs)
-        except APIResponseError as err:
-            if err.code not in APIErrorCode.RetryableCodes:
-                raise err
-            elif retry_count < max_api_retries:
-                retry_count += 1
-                if client.retry and isinstance(err, ConnectionThrottled):
-                    retry_after = err.retry_after
-                    client.logger.info(
-                        "This API call has been rate limited and "
-                        "will be retried in %f seconds. Attempt %d of %d.",
-                        retry_after,
-                        retry_count,
-                        max_api_retries,
-                    )
-                else:
-                    retry_after = 2
-                    client.logger.info(
-                        "This API call failed and "
-                        "will be retried in %f seconds. Attempt %d of %d.",
-                        retry_after,
-                        retry_count,
-                        max_api_retries,
-                    )
-                sleep(retry_after)
-                return wrapper(*args, retry_count=retry_count, **kwargs)
+        except TRANSIENT_NETWORK_ERRORS as err:
+            if not idempotent:
+                raise
+            error = err
+            reason = "failed with a connection error"
+            retry_after = 2 * (retry_count + 1)
+        except HTTPResponseError as err:
+            if not _response_is_retryable(err):
+                raise
+            error = err
+            if isinstance(err, ConnectionThrottled):
+                reason = "has been rate limited"
+                retry_after = err.retry_after
             else:
-                raise err
+                reason = "failed"
+                retry_after = 2
+        if not client.retry or retry_count >= max_api_retries:
+            raise error
+        retry_count += 1
+        client.logger.info(
+            "This API call %s and will be retried in %f seconds. Attempt %d of %d.",
+            reason,
+            retry_after,
+            retry_count,
+            max_api_retries,
+        )
+        sleep(retry_after)
+        return wrapper(*args, retry_count=retry_count, idempotent=idempotent, **kwargs)
 
     return wrapper

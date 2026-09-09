@@ -88,7 +88,21 @@ class LinkMentionMention(Mention):
         return self.text
 
 
-# TODO: Handle template mention
+class UnsupportedMention(Mention):
+    """
+    Fallback for mention types n2y doesn't model (e.g. `template_mention`,
+    `custom_emoji`). Notion supplies a plain-text rendering for every mention,
+    so use that rather than aborting the export.
+    """
+
+    def to_pandoc(self):
+        self.client.logger.warning(
+            'Rendering unsupported "%s" mention as plain text "%s"',
+            self.notion_type,
+            self.plain_text,
+        )
+        return RichText.plain_text_to_pandoc(self.plain_text)
+
 
 DEFAULT_MENTIONS = {
     "user": UserMention,
