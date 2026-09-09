@@ -27,6 +27,22 @@ def test_load_plugin_invalid_object_type():
     assert "puppy" in str(err)
 
 
+def test_load_plugins_unknown_module_names_builtin_plugins():
+    client = Client("")
+    with pytest.raises(PluginError) as err:
+        client.load_plugins(["n2y.plugins.footnotes"])
+    assert "n2y.plugins.footnotes" in str(err.value)
+    assert "n2y.plugins.unsupported.footnotes" in str(err.value)
+    assert "n2y.plugins.mermaid" in str(err.value)
+
+
+def test_load_plugins_module_without_notion_classes():
+    client = Client("")
+    with pytest.raises(PluginError) as err:
+        client.load_plugins(["n2y.errors"])
+    assert "notion_classes" in str(err.value)
+
+
 def test_load_plugin_valid_page():
     client = Client("")
 

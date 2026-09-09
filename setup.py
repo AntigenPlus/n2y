@@ -32,7 +32,7 @@ setup(
         "Programming Language :: Python :: 3.11",
     ],
     keywords="notion documentation yaml markdown",
-    packages=find_packages(exclude=["tests"]),
+    packages=find_packages(exclude=["tests", "tests.*"]),
     install_requires=["pyyaml", "requests", "pandoc", "jinja2"],
     extras_require={
         "dev": [

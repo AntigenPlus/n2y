@@ -227,7 +227,7 @@ The default implementation of these classes can be modified using a plugin syste
 2. Subclass the various notion classes, modifying their constructor or `to_pandoc` method as desired
 3. Set the `plugins` property in your export config to the module name (e.g., `n2y.plugins.deepheaders`)
 
-See the [builtin plugins](https://github.com/innolitics/n2y/tree/main/n2y/plugins) for examples.
+See the [builtin plugins](n2y/plugins) for examples.
 
 ### Using Multiple Plugins
 
@@ -284,13 +284,19 @@ N2y provides a few builtin plugins. These plugins are all turned off by default.
 
 The plugins are split into two tiers:
 
-- **Supported** plugins live in `n2y/plugins/`. They are the ones the Antigen
-  Plus export pipeline loads, and they are reviewed, tested, and maintained.
+- **Supported** plugins live in `n2y/plugins/` and are loaded as
+  `n2y.plugins.<name>`. They are the ones the Antigen Plus export pipeline
+  loads, and they are reviewed, tested, and maintained.
 - **Unsupported** plugins live in `n2y/plugins/unsupported/` and are loaded as
   `n2y.plugins.unsupported.<name>`. They are kept so they remain available,
-  but they are not maintained: known bugs are left in place and their tests
-  (in `tests/unsupported/`) are not part of the quality gate. Move a module
-  back into `n2y/plugins/` and review it before relying on it.
+  but they are not maintained: known bugs are left in place, and their tests
+  (in `tests/unsupported/`) are excluded from the default `pytest tests` run
+  (run them explicitly with `pytest tests/unsupported`). They still have to
+  pass `flake8`. Move a module back into `n2y/plugins/` and review it before
+  relying on it.
+
+A config that names a plugin module that does not exist fails that export with
+a `PluginError` listing the built-in plugin modules.
 
 ### Jinja Render Page
 
@@ -356,24 +362,28 @@ When this plugin is enabled, any "blue" colored toggle block will have it's chil
 
 ### Unsupported Plugins
 
-### Linked Header Blocks
+The plugins below are loaded as `n2y.plugins.unsupported.<name>` and are not
+maintained; see the tier note at the top of this section.
+
+#### Linked Header Blocks
 
 Replace headers with links back to the originating notion block.
 
-### Footnotes
+#### Footnotes
 
 Adds support for Pandoc-style footnotes. Any `text` rich texts that contain footnote references in the format `[^NUMBER]` (eg: `...some claim [^2].`) will be linked to the corresponding footnote paragraph block starting with `[NUMBER]:` (eg: `[2]: This is a footnote.`).
 
-### DB Footnotes
+#### DB Footnotes
+
 Adds general footnote support (not specialized for markdown) with the expectation that all footnote content is placed in an inline database on the original page wherein footnote references are made. Specific footnote references are made with Notion's page mention feature, mentioning a specific footnote page in the database. For example, each page in the database can simply be titled with a footnote number and contain the footnote text as the page content. The inline database must have a title that ends with "Footnotes."
 
-### Internal Links
+#### Internal Links
 
-Rewrites links that point at blocks on the same page (`#block-id` fragments) into anchors on the corresponding exported headers.
+Rewrites Notion same-page links (hrefs of the form `/<page-id>#<block-id>`) to point at the pandoc header ID generated from the target block's text, so links to headers on the same page resolve in the exported document. Links to blocks without text (images, dividers) are left unchanged.
 
-### Download File Property
+#### Download File Property
 
-Downloads the files referenced by a "files" property into `media_root` and rewrites the property value to the local `media_url` path.
+Downloads each file referenced by a "files" property into `media_root` (named `<page-title-slug>-<content-hash><ext>`) and replaces the property value with a list of the corresponding URLs under `media_url`.
 
 ## Architecture
 

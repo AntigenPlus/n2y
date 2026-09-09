@@ -1,6 +1,7 @@
 import importlib.util
 import json
 import logging
+import pkgutil
 from os import makedirs, path
 from urllib.parse import urljoin, urlparse
 
@@ -32,6 +33,40 @@ from n2y.utils import retry_api_call, sanitize_filename, strip_hyphens
 
 # TODO: Rename this file `client.py`
 log = logging.getLogger(__name__)
+
+
+def builtin_plugins():
+    """
+    The dotted names of the plugin modules that ship with n2y, supported tier
+    first (see the README's "Built-in Plugins" section for the two tiers).
+    """
+    import n2y.plugins
+    import n2y.plugins.unsupported
+
+    names = []
+    for package in (n2y.plugins, n2y.plugins.unsupported):
+        for module_info in pkgutil.iter_modules(package.__path__):
+            if not module_info.ispkg:
+                names.append(f"{package.__name__}.{module_info.name}")
+    return names
+
+
+def _import_plugin_classes(plugin):
+    try:
+        plugin_module = importlib.import_module(plugin)
+    except ModuleNotFoundError as err:
+        # Only translate a missing *plugin*; a plugin's own missing dependency
+        # should surface as-is.
+        if err.name == plugin or plugin.startswith(f"{err.name}."):
+            raise PluginError(
+                f'No module named "{plugin}". '
+                f'Built-in plugins: {", ".join(builtin_plugins())}'
+            ) from err
+        raise
+    if not hasattr(plugin_module, "notion_classes"):
+        raise PluginError(f'Module "{plugin}" has no "notion_classes" attribute')
+    return plugin_module.notion_classes
+
 
 DEFAULT_NOTION_CLASSES = {
     "page": Page,
@@ -139,9 +174,8 @@ class Client:
         self.notion_classes = self.get_default_classes()
         if plugins is not None:
             for plugin in plugins:
-                plugin_module = importlib.import_module(plugin)
                 try:
-                    self.load_plugin(plugin_module.notion_classes)
+                    self.load_plugin(_import_plugin_classes(plugin))
                 except PluginError as err:
                     self.logger.error('Error loading plugin "%s": %s', plugin, err)
                     raise

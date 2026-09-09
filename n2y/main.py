@@ -7,6 +7,7 @@ from importlib.metadata import version
 import yaml
 
 from n2y.config import load_config, merge_default_config
+from n2y.errors import PluginError
 from n2y.export import database_to_files, database_to_yaml, export_page, write_document
 from n2y.notion import Client
 from n2y.utils import share_link_from_id
@@ -77,7 +78,12 @@ def main(raw_args, access_token, n2y_cache=None, logger=log):
     error_occurred = False
     for export in config["exports"]:
         client.logger.info("Exporting to %s", export["output"])
-        client.load_plugins(export["plugins"])
+        try:
+            client.load_plugins(export["plugins"])
+        except PluginError:
+            # load_plugins has already logged the specific problem
+            error_occurred = True
+            continue
         export_completed = _export_node_from_config(client, export)
         if not export_completed:
             error_occurred = True
