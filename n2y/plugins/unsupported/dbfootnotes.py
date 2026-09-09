@@ -4,7 +4,7 @@ from n2y.database import Database
 from n2y.errors import PluginError, UseNextClass
 from n2y.mentions import PageMention
 
-plugin_data_key = "n2y.plugins.dbfootnotes"
+plugin_data_key = "n2y.plugins.unsupported.dbfootnotes"
 
 
 class PageMentionFootnote(PageMention):

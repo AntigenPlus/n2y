@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 from n2y.notion import Client
 from n2y.notion_mocks import mock_page, mock_property_value, mock_user
 from n2y.page import Page
-from n2y.plugins.downloadfileproperty import DownloadFilePropertyValue
+from n2y.plugins.unsupported.downloadfileproperty import DownloadFilePropertyValue
 from n2y.user import User
 from n2y.utils import slugify
 
@@ -13,7 +13,7 @@ from n2y.utils import slugify
 def mock_page_with_file_property(tmp_dir: str, mk_wrap_notion_user: MagicMock) -> Page:
     client = Client(
         "",
-        plugins=["n2y.plugins.downloadfileproperty"],
+        plugins=["n2y.plugins.unsupported.downloadfileproperty"],
         media_root=tmp_dir,
         media_url="http://foo.com/",
     )

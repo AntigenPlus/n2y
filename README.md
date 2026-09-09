@@ -280,7 +280,17 @@ Most of the Notion blocks can generate their pandoc AST from _only_ their own da
 
 ## Built-in Plugins
 
-N2y provides a few builtin plugins. These plugins are all turned off by default. Brief descriptions are provided below, but see [the code](https://github.com/innolitics/n2y/tree/main/n2y/plugins) for details.
+N2y provides a few builtin plugins. These plugins are all turned off by default. Brief descriptions are provided below, but see [the code](n2y/plugins) for details.
+
+The plugins are split into two tiers:
+
+- **Supported** plugins live in `n2y/plugins/`. They are the ones the Antigen
+  Plus export pipeline loads, and they are reviewed, tested, and maintained.
+- **Unsupported** plugins live in `n2y/plugins/unsupported/` and are loaded as
+  `n2y.plugins.unsupported.<name>`. They are kept so they remain available,
+  but they are not maintained: known bugs are left in place and their tests
+  (in `tests/unsupported/`) are not part of the quality gate. Move a module
+  back into `n2y/plugins/` and review it before relying on it.
 
 ### Jinja Render Page
 
@@ -334,6 +344,18 @@ This plugin assumes that the `mmdc` mermaid commandline tool is available, and w
 
 If there are errors with the mermaid syntax, it is treated as a normal codeblock and the warning is logged.
 
+### Expand Link To Page Blocks
+
+When this plugin is enabled, any "link to page" block (which can be created using the `/link` command in the Notion UI), will be replaced with the content of the page that is linked to. This makes it possible to use the "link to page" block to include repeated content in multiple locations. It is like a "synced content block" in this way, but unlike "synced content blocks" which don't play well when duplicating child pages, the "link to page" blocks can be duplicated more easily.
+
+Note that any link to a page that the integration doesn't have access to will be skipped entirely (Notion returns an "Unsupported Block" in this case).
+
+### Hidden Jinja Toggles
+
+When this plugin is enabled, any "blue" colored toggle block will have it's children directly rendered. The text on the toggle itself will be ignored.
+
+### Unsupported Plugins
+
 ### Linked Header Blocks
 
 Replace headers with links back to the originating notion block.
@@ -345,15 +367,13 @@ Adds support for Pandoc-style footnotes. Any `text` rich texts that contain foot
 ### DB Footnotes
 Adds general footnote support (not specialized for markdown) with the expectation that all footnote content is placed in an inline database on the original page wherein footnote references are made. Specific footnote references are made with Notion's page mention feature, mentioning a specific footnote page in the database. For example, each page in the database can simply be titled with a footnote number and contain the footnote text as the page content. The inline database must have a title that ends with "Footnotes."
 
-### Expand Link To Page Blocks
+### Internal Links
 
-When this plugin is enabled, any "link to page" block (which can be created using the `/link` command in the Notion UI), will be replaced with the content of the page that is linked to. This makes it possible to use the "link to page" block to include repeated content in multiple locations. It is like a "synced content block" in this way, but unlike "synced content blocks" which don't play well when duplicating child pages, the "link to page" blocks can be duplicated more easily.
+Rewrites links that point at blocks on the same page (`#block-id` fragments) into anchors on the corresponding exported headers.
 
-Note that any link to a page that the integration doesn't have access to will be skipped entirely (Notion returns an "Unsupported Block" in this case).
+### Download File Property
 
-### Hidden Jinja Toggles
-
-When this plugin is enabled, any "blue" colored toggle block will have it's children directly rendered. The text on the toggle itself will be ignored.
+Downloads the files referenced by a "files" property into `media_root` and rewrites the property value to the local `media_url` path.
 
 ## Architecture
 

@@ -6,7 +6,7 @@ from n2y.blocks import ParagraphBlock
 from n2y.errors import UseNextClass
 from n2y.rich_text import TextRichText
 
-plugin_data_key = "n2y.plugins.footnotes"
+plugin_data_key = "n2y.plugins.unsupported.footnotes"
 
 
 class ParagraphWithFootnoteBlock(ParagraphBlock):

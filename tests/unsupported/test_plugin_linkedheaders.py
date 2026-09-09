@@ -9,7 +9,7 @@ from n2y.notion_mocks import mock_block, mock_rich_text
 from n2y.utils import header_id_from_text, strip_hyphens
 from tests.test_blocks import process_block
 
-linked_headers = ["n2y.plugins.linkedheaders"]
+linked_headers = ["n2y.plugins.unsupported.linkedheaders"]
 
 
 def mock_header_ast(level, suffix, notion_block):

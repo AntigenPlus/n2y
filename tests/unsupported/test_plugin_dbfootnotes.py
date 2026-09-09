@@ -15,7 +15,7 @@ from n2y.notion_mocks import (
     mock_user,
 )
 from n2y.page import Page
-from n2y.plugins.dbfootnotes import PageMentionFootnote
+from n2y.plugins.unsupported.dbfootnotes import PageMentionFootnote
 from n2y.user import User
 
 
@@ -23,7 +23,7 @@ from n2y.user import User
 def mock_page_mention_with_footnote(
     mentioned_page_parent, wrap_notion_user, connect_parent_correctly=True
 ):
-    client = Client("", plugins=["n2y.plugins.dbfootnotes"])
+    client = Client("", plugins=["n2y.plugins.unsupported.dbfootnotes"])
     wrap_notion_user.return_value = User(client, mock_user())
     # The original page, with the footnote ref.
     original_page = mock_page()

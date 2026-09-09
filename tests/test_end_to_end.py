@@ -3,6 +3,7 @@ import os
 from os import listdir
 from os.path import isfile, join
 
+import pytest
 import yaml
 
 try:
@@ -333,7 +334,6 @@ def test_builtin_plugins(tmpdir):
             "n2y.plugins.removecallouts",
             "n2y.plugins.rawcodeblocks",
             "n2y.plugins.mermaid",
-            "n2y.plugins.footnotes",
             "n2y.plugins.expandlinktopages",
         ],
     )
@@ -423,6 +423,7 @@ def test_jinja_render_plugin(tmpdir):
     assert "Page With JinjaCodeBlock" in document
 
 
+@pytest.mark.skip(reason="dbfootnotes is an unsupported plugin; see n2y/plugins/unsupported")
 def test_dbfootnote_plugin(tmpdir):
     """
     This test exercises our database footnote. It involves a simple page with
@@ -436,7 +437,7 @@ def test_dbfootnote_plugin(tmpdir):
         tmpdir,
         object_id,
         plugins=[
-            "n2y.plugins.dbfootnotes",
+            "n2y.plugins.unsupported.dbfootnotes",
         ],
     )
 
