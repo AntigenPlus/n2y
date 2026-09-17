@@ -79,3 +79,11 @@ bd.db
 # JSONL files: issues.jsonl is a regenerable snapshot (auto-export off); interactions.jsonl is a local-only audit log
 issues.jsonl
 interactions.jsonl
+
+# Added by bd (missing required patterns)
+*.gate.lock*
+
+# Dolt server config (machine-local: absolute cfg_dir path and a
+# machine-chosen listener.port). bd generates it in server mode but omits
+# it from doctor requiredPatterns, which lists five dolt-server.* siblings.
+dolt-server-config.yaml

@@ -21,3 +21,6 @@ _debug_pkg
 
 # n2y export output (generated)
 export/
+
+# Beads / Dolt files (added by bd init)
+*.gate.lock*
