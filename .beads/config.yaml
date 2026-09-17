@@ -68,7 +68,6 @@
 sync.remote: "git+https://github.com/AntigenPlus/n2y"
 export:
     auto: false
-dolt:
-    auto-push: true
 backup:
     git-push: false
+dolt.auto-push: false
